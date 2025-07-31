@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-EUserv IPv6 免费 VPS 自动续期脚本（极简版）
+EUserv IPv6 免费 VPS 自动续期脚本（极简版 + DEBUG）
 - 仅依赖 requests + beautifulsoup4
-- 只需要三项环境变量：
+- 环境变量：
     * EUSERV_USERNAME   多帐号用空格分隔
     * EUSERV_PASSWORD   对应密码，同样以空格分隔
-    * EUSERV_2FA_SECRET TOTP base32 密钥（单个即可），若你有多个账号可写成空格分隔的列表
-- 如果登录过程中遇到验证码（Captcha）或安全 PIN，本脚本会直接退出并打印提示；
-  目前没有自动识别。你可以多跑几次，或用浏览器手动续期。
-
-使用方法：
-    python main.py   # 本地测试
-    # GitHub Actions 中会由 workflow 调用
+    * EUSERV_2FA_SECRET TOTP base32 密钥；单个密钥会复用到所有账号
+    * DEBUG             可选，设为 "1" 时打印调试信息
 """
 import os
 import re
@@ -30,6 +25,12 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/119.0.0.0 Safari/537.36"
 )
+
+DEBUG = os.getenv("DEBUG", "0") == "1"
+
+def dbg(*args):
+    if DEBUG:
+        print("[DEBUG]", *args)
 
 # ---------- 读取环境变量 ----------
 USERNAME_LIST: List[str] = os.getenv("EUSERV_USERNAME", "").strip().split()
@@ -50,7 +51,7 @@ if len(TOTP_SECRET_LIST) != len(USERNAME_LIST):
 
 def hotp(key: str, counter: int, digits: int = 6) -> str:
     key_bytes = base64.b32decode(key.upper() + "=" * ((8 - len(key)) % 8))
-    counter_bytes = struct.pack(" >Q", counter)
+    counter_bytes = struct.pack(">Q", counter)
     mac = hmac.new(key_bytes, counter_bytes, "sha1").digest()
     offset = mac[-1] & 0x0F
     code = (struct.unpack(">I", mac[offset : offset + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
@@ -62,14 +63,13 @@ def totp(key: str, time_step: int = 30, digits: int = 6) -> str:
 # ---------- 网络请求 ----------
 
 def login(username: str, password: str, secret: str) -> Tuple[str, requests.Session]:
-    """返回 (sess_id, session)；若登录失败则 sess_id==""""""""""""""""""""""""""-1""""""""""""""""""""""""".
-    当前实现仅处理常规 2FA 流程；若出现验证码或邮件 PIN 将直接失败。"""
     headers = {"User-Agent": USER_AGENT, "Origin": "https://www.euserv.com"}
     base_url = "https://support.euserv.com"
     session = requests.Session()
 
     # 1. 取 PHPSESSID
     resp = session.get(f"{base_url}/index.iphp", headers=headers)
+    dbg("GET index", resp.status_code)
     if resp.status_code != 200:
         return "-1", session
     try:
@@ -87,13 +87,15 @@ def login(username: str, password: str, secret: str) -> Tuple[str, requests.Sess
         "sess_id": sess_id,
     }
     r = session.post(f"{base_url}/index.iphp", headers=headers, data=data)
+    dbg("POST login", r.status_code)
 
     if "To finish the login process please solve the following captcha" in r.text:
-        print("[AutoEUserv] 登录需要验证码，目前脚本未实现自动识别，终止。")
+        print("[AutoEUserv] 登录需要验证码，脚本未处理。")
         return "-1", session
 
     if "To finish the login process enter the PIN" in r.text:
         code = totp(secret)
+        dbg("Submitting TOTP", code)
         r = session.post(
             f"{base_url}/index.iphp",
             headers=headers,
@@ -103,17 +105,21 @@ def login(username: str, password: str, secret: str) -> Tuple[str, requests.Sess
                 "pin": code,
             },
         )
+        dbg("POST pin", r.status_code)
 
     if "Hello" in r.text or "Confirm or change your customer data here" in r.text:
+        dbg("Login success")
         return sess_id, session
 
+    dbg("Login failed, snippet:", r.text[:400])
     return "-1", session
 
 
 def get_servers(sess_id: str, session: requests.Session):
-    base_url = "https://support.euserv.com/index.iphp?sess_id=" + sess_id
+    base_url = f"https://support.euserv.com/index.iphp?sess_id={sess_id}"
     headers = {"User-Agent": USER_AGENT}
     r = session.get(base_url, headers=headers)
+    dbg("GET dashboard", r.status_code)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
     servers = {}
@@ -130,7 +136,6 @@ def get_servers(sess_id: str, session: requests.Session):
 
 
 def renew_contract(sess_id: str, session: requests.Session, order_id: str):
-    """尝试点击一次“Extend contract”。安全 PIN 逻辑已去除，可能需要手动续期。"""
     url = "https://support.euserv.com/index.iphp"
     headers = {"User-Agent": USER_AGENT, "Origin": "https://support.euserv.com"}
     data = {
@@ -140,7 +145,8 @@ def renew_contract(sess_id: str, session: requests.Session, order_id: str):
         "subaction": "choose_order",
         "choose_order_subaction": "show_contract_details",
     }
-    session.post(url, headers=headers, data=data)
+    r = session.post(url, headers=headers, data=data)
+    dbg("POST renew", order_id, r.status_code)
 
 
 def main():
