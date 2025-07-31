@@ -357,33 +357,33 @@ def renew(
     )
 
     # 等待邮件解析器解析出 PIN
-    time.sleep(WAITING_TIME_OF_PIN)
-    pin = get_pin_from_mailparser(mailparser_dl_url_id)
-    log(f"[MailParser] PIN: {pin}")
+   # time.sleep(WAITING_TIME_OF_PIN)
+   # pin = get_pin_from_mailparser(mailparser_dl_url_id)
+   # log(f"[MailParser] PIN: {pin}")
 
     # 使用 PIN 获取 token
-    data = {
-        "auth": pin,
-        "sess_id": sess_id,
-        "subaction": "kc2_security_password_get_token",
-        "prefix": "kc2_customer_contract_details_extend_contract_",
-        "type": 1,
-        "ident": f"kc2_customer_contract_details_extend_contract_{order_id}",
-    }
-    f = session.post(url, headers=headers, data=data)
-    f.raise_for_status()
-    if not json.loads(f.text)["rs"] == "success":
-        return False
-    token = json.loads(f.text)["token"]["value"]
-    data = {
-        "sess_id": sess_id,
-        "ord_id": order_id,
-        "subaction": "kc2_customer_contract_details_extend_contract_term",
-        "token": token,
-    }
-    session.post(url, headers=headers, data=data)
-    time.sleep(5)
-    return True
+  #  data = {
+   #     "auth": pin,
+    #    "sess_id": sess_id,
+     #   "subaction": "kc2_security_password_get_token",
+      #  "prefix": "kc2_customer_contract_details_extend_contract_",
+     #   "type": 1,
+      #  "ident": f"kc2_customer_contract_details_extend_contract_{order_id}",
+   # }
+   # f = session.post(url, headers=headers, data=data)
+   # f.raise_for_status()
+   # if not json.loads(f.text)["rs"] == "success":
+   #     return False
+   # token = json.loads(f.text)["token"]["value"]
+   # data = {
+   #     "sess_id": sess_id,
+   #     "ord_id": order_id,
+   #     "subaction": "kc2_customer_contract_details_extend_contract_term",
+   #     "token": token,
+   # }
+   # session.post(url, headers=headers, data=data)
+   # time.sleep(5)
+   # return True
 
 # 检查续期状态
 def check(sess_id: str, session: requests.session):
