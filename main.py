@@ -26,7 +26,7 @@ USER_AGENT = (
     "Chrome/119.0.0.0 Safari/537.36"
 )
 
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "0") == "1"
 
 def dbg(*args):
     if DEBUG:
